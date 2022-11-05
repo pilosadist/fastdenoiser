@@ -1,2 +1,2 @@
-# fastdenoiser
+# Fastdenoiser
 fast speech denoiser model
