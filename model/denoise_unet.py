@@ -6,42 +6,6 @@ from torch.autograd import Variable
 device = ('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-class Conv1DFIR(nn.Module):
-    def __init__(self,
-                 in_channels: int,
-                 out_channels: int,
-                 kernel_size: int,
-                 padding: int = 0,
-                 dilation: int = 1,
-                 groups: int = 1,
-                 bias: bool = False):
-        super(Conv1DFIR, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.padding = padding
-        self.groups = groups
-        self.dilation = dilation
-        w = 1 * torch.randn(self.out_channels, self.in_channels, self.kernel_size // 2 + 1)
-        # s = (2 * torch.sum(w[:, :, :-1], dim=2) + w[:, :, -1]) / kernel_size
-        # s = s.unsqueeze(dim=2)
-        # w = w - s
-
-        self.weight = nn.Parameter(w, requires_grad=True).to(device)
-        if bias:
-            self.bias = nn.Parameter(1 * torch.randn(out_channels)).to(device)
-        else:
-            self.bias = None
-
-    def forward(self, x):
-        return F.conv1d(x,
-                        torch.cat([self.weight, torch.flip(self.weight[:, :, :-1], [2])], dim=2),
-                        bias=self.bias,
-                        padding=self.padding,
-                        dilation=self.dilation,
-                        groups=self.groups)
-
-
 class Down(nn.Module):
     def __init__(self, in_ch, out_ch, kernel_size):
         super(Down, self).__init__()
@@ -154,6 +118,7 @@ class UnetBlock(nn.Module):
         x = self.out(x)
         return x
 
+
 class Unet(nn.Module):
     def __init__(self):
         super(Unet, self).__init__()
@@ -161,4 +126,4 @@ class Unet(nn.Module):
         self.u2 = UnetBlock()
 
     def forward(self, x):
-        return self.u1(x)-self.u2(x)
+        return self.u1(x) - self.u2(x)
