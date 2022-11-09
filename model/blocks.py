@@ -1,7 +1,9 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 
+device = ('cuda' if torch.cuda.is_available() else 'cpu')
 
 class Conv1DFIR(nn.Module):
     def __init__(self,
@@ -24,9 +26,9 @@ class Conv1DFIR(nn.Module):
         s = s.unsqueeze(dim=2)
         w = w - s
 
-        self.weight = nn.Parameter(w, requires_grad=True)
+        self.weight = nn.Parameter(w, requires_grad=True).to(device)
         if bias:
-            self.bias = nn.Parameter(0.01 * torch.randn(out_channels))
+            self.bias = nn.Parameter(0.01 * torch.randn(out_channels)).to(device)
         else:
             self.bias = None
 
@@ -47,7 +49,7 @@ class Downsampling(nn.Module):
                                kernel_size=kernel_size,
                                padding=kernel_size // 2,
                                groups=1) for _ in range(4)]
-        self.alpha = nn.Parameter(torch.Tensor([1]), requires_grad=True)
+        self.alpha = nn.Parameter(torch.Tensor([1]), requires_grad=True).to(device)
 
     def forward(self, x):
         odd = x[:, :, 1::2]
@@ -61,6 +63,27 @@ class Downsampling(nn.Module):
         return torch.cat([even, odd], dim=1)
 
 
+# class Upsampling(nn.Module):
+#     def __init__(self, kernel_size):
+#         super(Upsampling, self).__init__()
+#         self.conv = [Conv1DFIR(in_channels=1,
+#                                out_channels=1,
+#                                kernel_size=kernel_size,
+#                                padding=kernel_size // 2,
+#                                groups=1) for _ in range(4)]
+#         self.alpha = nn.Parameter(torch.Tensor([1]), requires_grad=True).to(device)
+#
+#     def forward(self, even, odd):
+#         odd = odd * self.alpha
+#         even = even / self.alpha
+#         even = even - self.conv[0](odd)
+#         odd = odd + self.conv[1](even)
+#         even = even - self.conv[2](odd)
+#         odd = odd + self.conv[3](even)
+#         mix = torch.cat([even, odd], dim=1).permute(0, 2, 1)
+#         mix = mix.reshape(mix.shape[0], 1, -1)
+#         return mix
+
 class Upsampling(nn.Module):
     def __init__(self, kernel_size):
         super(Upsampling, self).__init__()
@@ -69,8 +92,12 @@ class Upsampling(nn.Module):
                                kernel_size=kernel_size,
                                padding=kernel_size // 2,
                                groups=1) for _ in range(4)]
-        self.alpha = nn.Parameter(torch.Tensor([1]), requires_grad=True)
-        self.tanh = nn.Tanh()
+        self.outconv = Conv1DFIR(in_channels=2,
+                               out_channels=1,
+                               kernel_size=kernel_size,
+                               padding=kernel_size // 2)
+        self.up = nn.Upsample(scale_factor=2, mode='linear', align_corners=True)
+        self.alpha = nn.Parameter(torch.Tensor([1]), requires_grad=True).to(device)
 
     def forward(self, even, odd):
         odd = odd * self.alpha
@@ -79,9 +106,10 @@ class Upsampling(nn.Module):
         odd = odd + self.conv[1](even)
         even = even - self.conv[2](odd)
         odd = odd + self.conv[3](even)
-        mix = torch.cat([even, odd], dim=1).permute(0, 2, 1)
-        mix = mix.reshape(mix.shape[0], 1, -1)
-        return mix
+        mix = torch.cat([even, odd], dim=1)
+        mix = self.up(mix)
+
+        return self.outconv(mix)
 
 
 class FIRFilter(nn.Module):
@@ -97,9 +125,23 @@ class FIRFilter(nn.Module):
         self.regressor = nn.Sequential(nn.Linear(48, 96),
                                        nn.ReLU(),
                                        nn.Linear(96, 2),
-                                       nn.Tanh())
+                                       nn.Tanh()).to(device)
 
     def forward(self, x):
         c = self.conv(x).permute(0, 2, 1)
         c = self.regressor(c).permute(0, 2, 1)
         return x + c
+
+
+class Neck(nn.Module):
+    def __init__(self, size):
+        super(Neck, self).__init__()
+        self.lstm = nn.LSTM(input_size=size, hidden_size=size, num_layers=1, batch_first=True)
+        self.in_ch = size
+
+    def forward(self, x):
+        hidden = Variable(torch.zeros(1, x.size(0), self.in_ch).to(device))
+        c_0 = Variable(torch.zeros(1, x.size(0), self.in_ch).to(device))
+        lstm_out, (hidden, c_0) = self.lstm(x.permute(0, 2, 1), (hidden, c_0))
+        x = lstm_out.permute(0, 2, 1)
+        return x
