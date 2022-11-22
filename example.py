@@ -1,13 +1,13 @@
 from denoiser import DenoiseFile
 import torchaudio
+#
+device = 'cuda'
 
-device = 'cpu'
+d = DenoiseFile('w', order=5)
 
-d = DenoiseFile('u', order=2)
-
-wav, sr = torchaudio.load('dataset\\noisy_test\\long.wav')
+wav, sr = torchaudio.load('dataset\\noisy_test\\p232_155.wav')
 
 out = d(wav.to(device))
 
-torchaudio.save('w_in.wav', wav.cpu().detach(), 44000)
-torchaudio.save('w_out.wav', out.cpu().detach(), 44000)
+torchaudio.save('examples\\p232_155.wav', wav.cpu().detach(), 48000)
+torchaudio.save('examples\\p232_155_w_5.wav', out.cpu().detach(), 48000)
